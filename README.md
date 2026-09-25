@@ -87,6 +87,8 @@ Generate a rotating square, a color gradient, and transparent GIF/APNG samples:
 ruby examples/generate.rb
 ~~~
 
+![A blue square rotating in an animated GIF](docs/assets/spinning-square.gif)
+
 Pass an output directory as the first argument to choose where the files are written.
 
 GIF format acknowledgement: The Graphics Interchange Format© is the Copyright property of CompuServe Incorporated. GIF® is a Service Mark property of CompuServe Incorporated.
