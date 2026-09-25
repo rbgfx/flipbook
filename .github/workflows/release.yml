@@ -71,12 +71,16 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
-          awk -v version="$version" '
-            $0 == "## " version || $0 == "## [" version "]" || index($0, "## " version " -") == 1 || index($0, "## [" version "] -") == 1 { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-            END { if (!found) exit 1 }
-          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if [ "$RELEASE_TAG" = "v0.1.0" ]; then
+            printf '%s\n' 'Initial release' > "$RUNNER_TEMP/release-notes.md"
+          else
+            awk -v version="$version" '
+              $0 == "## " version || $0 == "## [" version "]" || index($0, "## " version " -") == 1 || index($0, "## [" version "] -") == 1 { found = 1; next }
+              found && /^## / { exit }
+              found { print }
+              END { if (!found) exit 1 }
+            ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          fi
           grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
