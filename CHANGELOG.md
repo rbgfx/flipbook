@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.0] - 2026-09-25
+
+- Read composited GIF frames with configurable image, frame, and total-pixel limits.
+- Improve APNG writing and changed-region encoding.
+
 ## [0.3.0] - 2026-09-25
 
 - Add GIF reading with LZW decoding, interlace handling, frame composition, and disposal methods.
