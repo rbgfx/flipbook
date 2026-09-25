@@ -1,6 +1,6 @@
 <h1 align="center">Flipbook</h1>
 
-<p align="center">Turn a sequence of RGBA images into animated GIF files.</p>
+<p align="center">Write optimized animated GIF and APNG files from Ruby images.</p>
 
 <p align="center">
   <a href="https://rubygems.org/gems/flipbook"><img src="https://badge.fury.io/rb/flipbook.svg" alt="Gem version"></a>
@@ -8,19 +8,20 @@
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-750014.svg" alt="License"></a>
 </p>
 
-[Formats](#formats) · [Installation](#installation) · [API](#api) · [Development](#development)
+[Formats](#formats) · [Installation](#installation) · [API](#api) · [Examples](#examples) · [Development](#development)
 
 ---
 
-Flipbook writes animated GIFs from [`Tessel::Image`](https://github.com/rbgfx/tessel) frames. GIF palettes use Tessel's shared quantizer. The library has no runtime dependency beyond Tessel and Ruby's standard library.
+Flipbook writes animated GIFs and APNGs from [`Tessel::Image`](https://github.com/rbgfx/tessel) frames. GIF palettes use Tessel's shared quantizer; APNG keeps full RGBA color. Both writers can crop unchanged frame regions.
 
 ## Formats
 
 | Format | Colors | Transparency | Encoding |
 | --- | --- | --- | --- |
-| GIF | Up to 256 palette entries | One transparent palette index | GIF89a output with global or per-frame palettes |
+| GIF | Up to 256 palette entries | One transparent palette index | GIF89a output with global or per-frame palettes and LZW |
+| APNG (`.png`, `.apng`) | Full RGBA | Full alpha | PNG-compatible first frame, `acTL` / `fcTL` / `fdAT` animation chunks |
 
-GIF uses a single global palette by default so colors stay stable across frames. Use `palette: :per_frame` when streaming frames with different color ranges.
+GIF uses a single global palette by default so colors stay stable across frames. Use `palette: :per_frame` when streaming frames with different color ranges. Delta cropping is most effective for opaque GIF frames; APNG supports alpha-safe cropped updates.
 
 ## Installation
 
@@ -54,11 +55,30 @@ Flipbook::GIF::Writer.open("recording.gif", width: 320, height: 240, palette: :p
 end
 ~~~
 
+Use a `.png` or `.apng` path for full-color animation. The first frame remains a valid PNG for viewers that do not animate APNG:
+
+~~~ruby
+Flipbook.write("animation.png", frames, fps: 30, loop: true)
+~~~
+
+`optimize: false` writes full-size frames. The default crops each changed frame to its smallest bounding rectangle. GIF cropping is used for opaque frames; APNG cropping preserves alpha changes.
+
 ### API contracts
 
-- `Flipbook.write(path, frames, fps: or delay:)` requires one or more same-sized `Tessel::Image` objects and a `.gif` output path.
+- `Flipbook.write(path, frames, fps: or delay:)` requires one or more same-sized `Tessel::Image` objects and a `.gif`, `.png`, or `.apng` output path.
 - `GIF::Writer#add` raises `TypeError` for non-image frames and `ArgumentError` for invalid dimensions or timing.
+- `APNG::Writer#add` accepts positive numeric delays in seconds and raises for frames that do not match the canvas dimensions.
 - GIF palette colors are RGB triples of integer channels from 0 to 255. GIF transparency is binary; partial alpha is encoded as an opaque palette color.
+
+## Examples
+
+Generate a rotating square, a color gradient, and transparent GIF/APNG samples:
+
+~~~sh
+ruby examples/generate.rb
+~~~
+
+Pass an output directory as the first argument to choose where the files are written.
 
 GIF format acknowledgement: The Graphics Interchange Format© is the Copyright property of CompuServe Incorporated. GIF® is a Service Mark property of CompuServe Incorporated.
 

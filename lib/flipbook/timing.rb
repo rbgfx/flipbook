@@ -4,7 +4,7 @@ module Flipbook
   module Timing
     module_function
 
-    def delays(count, fps: nil, delay: nil)
+    def delays(count, fps: nil, delay: nil, warn_short: true)
       raise ArgumentError, "frame count must be a positive integer" unless count.is_a?(Integer) && count.positive?
       raise ArgumentError, "provide fps or delay, not both" if !fps.nil? && !delay.nil?
       raise ArgumentError, "fps or delay is required" if fps.nil? && delay.nil?
@@ -19,7 +19,7 @@ module Flipbook
       else
         Array.new(count) { positive_delay(delay) }
       end
-      warn("Flipbook: delays below 1/50 second may be clamped by GIF viewers") if values.any? { |value| value < Rational(1, 50) }
+      warn("Flipbook: delays below 1/50 second may be clamped by GIF viewers") if warn_short && values.any? { |value| value < Rational(1, 50) }
       values
     end
 
