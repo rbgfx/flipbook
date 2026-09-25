@@ -39,10 +39,13 @@ module Flipbook
         @closed = false
         @warned_short_delay = false
         @frame_count = 0
+        @pending_frame = nil
+        @canvas_cleared = false
         @palette_mode = palette
         if palette == :per_frame
           raise ArgumentError, "transparent_index is only valid with a global palette" unless transparent_index.nil?
           @global_palette = nil
+          @global_transparent_index = 0
         else
           raise TypeError, "palette must be :per_frame or an RGB array" unless palette.is_a?(Array)
           @global_palette = validate_palette(palette)
@@ -67,28 +70,22 @@ module Flipbook
           @warned_short_delay = true
         end
         transparent_pixels = image.bytes.bytes.each_slice(4).any? { |_, _, _, alpha| alpha.zero? }
+        if @pending_frame
+          disposal = (@pending_frame[:transparent] || transparent_pixels) ? 2 : 1
+          write_pending(disposal)
+          @canvas_cleared = disposal == 2
+        end
+
         elapsed = @elapsed + seconds
         target_delay = (elapsed * 100).floor
         frame_delay = target_delay - @rounded_delay
         raise ArgumentError, "GIF frame delays cannot exceed 655.35 seconds" if frame_delay > 65_535
-        palette, opaque_palette, transparent_index = frame_palette(image, transparent_pixels)
-        rectangle = if @optimize && @previous_image && !transparent_pixels
+        rectangle = if @optimize && @previous_image && !transparent_pixels && !@canvas_cleared
           Diff.bounds(@previous_image, image) || [0, 0, 1, 1]
         else
           [0, 0, @width, @height]
         end
-        left, top, width, height = rectangle
-        frame = rectangle == [0, 0, @width, @height] ? image : image.crop(left, top, width, height)
-        indices, = Tessel::Quantize.quantize(frame, palette: opaque_palette, dither: @dither)
-        if transparent_pixels
-          raise ArgumentError, "palette has no transparent entry" unless transparent_index
-          frame.bytes.bytes.each_slice(4).with_index do |(_, _, _, alpha), index|
-            indices.setbyte(index, transparent_index) if alpha.zero?
-          end
-        end
-
-        write_control(frame_delay, transparent_index)
-        write_image(left, top, width, height, indices, palette)
+        @pending_frame = { image: image.dup, delay: frame_delay, rectangle:, transparent: transparent_pixels }
         @elapsed = elapsed
         @rounded_delay = target_delay
         @frame_count += 1
@@ -100,6 +97,7 @@ module Flipbook
         return if @closed
         raise Error, "GIF contains no frames" if @frame_count.zero?
 
+        write_pending(@pending_frame[:transparent] ? 2 : 1)
         @io << ";".b
         @closed = true
         @io.close if @owns_io && !@io.closed?
@@ -133,11 +131,33 @@ module Flipbook
           return [@global_palette, opaque, @global_transparent_index]
         end
 
-        reserve = transparent_pixels
-        opaque_count = reserve ? [@colors - 1, 1].max : @colors
+        opaque_count = [@colors - 1, 1].max
         opaque = Tessel::Quantize.palette_for(image, colors: [opaque_count, 2].max).first(opaque_count)
-        palette = reserve ? opaque + [[0, 0, 0]] : opaque
-        [palette, opaque, reserve ? opaque.length : nil]
+        [[[0, 0, 0]] + opaque, opaque, 0]
+      end
+
+      def write_pending(disposal)
+        pending = @pending_frame
+        image = pending[:image]
+        left, top, width, height = pending[:rectangle]
+        frame = if left.zero? && top.zero? && width == @width && height == @height
+          image
+        else
+          image.crop(left, top, width, height)
+        end
+        palette, opaque_palette, transparent_index = frame_palette(image, pending[:transparent])
+        indices, = Tessel::Quantize.quantize(frame, palette: opaque_palette, dither: @dither)
+        indices.each_byte.with_index { |index, offset| indices.setbyte(offset, index + 1) } if @palette_mode == :per_frame
+        if pending[:transparent]
+          raise ArgumentError, "palette has no transparent entry" unless transparent_index
+          frame.bytes.bytes.each_slice(4).with_index do |(_, _, _, alpha), index|
+            indices.setbyte(index, transparent_index) if alpha.zero?
+          end
+        end
+
+        write_control(pending[:delay], transparent_index, disposal:)
+        write_image(left, top, width, height, indices, palette)
+        @pending_frame = nil
       end
 
       def write_header
@@ -147,15 +167,16 @@ module Flipbook
           @io << [0x80 | 0x70 | (bits - 1), @global_transparent_index || 0, 0].pack("C3")
           write_palette(@global_palette, size)
         else
-          @io << "\0\0\0".b
+          @io << [0x80 | 0x70, 0, 0].pack("C3")
+          write_palette([[0, 0, 0]], 2)
         end
         if @loop
           @io << "!\xFF\x0BNETSCAPE2.0\x03\x01".b << [@loop].pack("v") << "\0".b
         end
       end
 
-      def write_control(delay, transparent_index)
-        packed = 0
+      def write_control(delay, transparent_index, disposal:)
+        packed = disposal << 2
         packed |= 0x01 if transparent_index
         @io << "!\xF9\x04".b << [packed, delay, transparent_index || 0, 0].pack("CvCC")
       end

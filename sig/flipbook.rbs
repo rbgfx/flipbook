@@ -2,6 +2,7 @@ module Flipbook
   VERSION: String
 
   def self.write: (String path, Array[Tessel::Image] frames, ?fps: Numeric?, ?delay: Numeric | Array[Numeric]?, ?loop: bool | Integer, ?colors: Integer, ?palette: Symbol | Array[[Integer, Integer, Integer]], ?dither: Symbol, ?optimize: bool) -> String
+  def self.read: (String path, ?max_pixels: Integer, ?max_frames: Integer, ?max_total_pixels: Integer) -> Array[Tessel::Image]
 
   module Timing
     def self.delays: (Integer count, ?fps: Numeric?, ?delay: Numeric | Array[Numeric]?, ?warn_short: bool) -> Array[Rational]
@@ -14,6 +15,21 @@ module Flipbook
       def add: (Tessel::Image image, delay: Numeric) -> Writer
       def close: () -> Writer
     end
+  end
+
+  module GIF
+    class Writer
+      def self.open: (String path, width: Integer, height: Integer, ?loop: bool | Integer, ?palette: Symbol | Array[[Integer, Integer, Integer]], ?colors: Integer, ?dither: Symbol, ?transparent_index: Integer?, ?optimize: bool) { (Writer) -> void } -> String
+      def add: (Tessel::Image image, delay: Numeric) -> Writer
+      def close: () -> Writer
+    end
+
+    class Reader
+      def self.read: (String path, ?max_pixels: Integer, ?max_frames: Integer, ?max_total_pixels: Integer) -> Array[Tessel::Image]
+      def read: () -> Array[Tessel::Image]
+    end
+
+    def self.read: (String path, ?max_pixels: Integer, ?max_frames: Integer, ?max_total_pixels: Integer) -> Array[Tessel::Image]
   end
 
   module Diff

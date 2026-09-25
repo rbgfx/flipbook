@@ -7,8 +7,8 @@ Gem::Specification.new do |spec|
   spec.version = Flipbook::VERSION
   spec.authors = ["Yudai Takada"]
   spec.email = ["t.yudai92@gmail.com"]
-  spec.summary = "Write animated GIF and APNG files in Ruby"
-  spec.description = "Flipbook encodes optimized animated GIF and APNG files from Tessel RGBA images."
+  spec.summary = "Write and read animated GIF and APNG files in Ruby"
+  spec.description = "Flipbook encodes optimized GIF and APNG animations and reads composited GIF frames from Tessel images."
   spec.homepage = "https://github.com/rbgfx/flipbook"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.1.0"

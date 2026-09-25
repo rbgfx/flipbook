@@ -63,11 +63,20 @@ Flipbook.write("animation.png", frames, fps: 30, loop: true)
 
 `optimize: false` writes full-size frames. The default crops each changed frame to its smallest bounding rectangle. GIF cropping is used for opaque frames; APNG cropping preserves alpha changes.
 
+Read GIFs as full-canvas `Tessel::Image` frames. The reader applies frame offsets, transparency, interlacing, and disposal before returning:
+
+~~~ruby
+frames = Flipbook.read("animation.gif")
+~~~
+
+`max_pixels:`, `max_frames:`, and `max_total_pixels:` can lower the decoder's resource limits for untrusted files.
+
 ### API contracts
 
 - `Flipbook.write(path, frames, fps: or delay:)` requires one or more same-sized `Tessel::Image` objects and a `.gif`, `.png`, or `.apng` output path.
 - `GIF::Writer#add` raises `TypeError` for non-image frames and `ArgumentError` for invalid dimensions or timing.
 - `APNG::Writer#add` accepts positive numeric delays in seconds and raises for frames that do not match the canvas dimensions.
+- `Flipbook.read(path)` returns fully composited GIF frames and rejects malformed streams or files over its configured limits.
 - GIF palette colors are RGB triples of integer channels from 0 to 255. GIF transparency is binary; partial alpha is encoded as an opaque palette color.
 
 ## Examples

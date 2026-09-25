@@ -14,6 +14,7 @@ class FlipbookTest < Test::Unit::TestCase
     end
 
     encoded = Flipbook::GIF::LZW.encode(bytes, 8)
+    assert_equal bytes.bytes, Flipbook::GIF::LZW.decode(unwrap_sub_blocks(encoded), 8, bytes.bytesize)
     assert_equal bytes, decode_lzw(unwrap_sub_blocks(encoded), 8, expected_size: bytes.bytesize)
   end
 
@@ -32,7 +33,7 @@ class FlipbookTest < Test::Unit::TestCase
       delays = bytes.scan(/!\xF9\x04(.{4})\x00/mn).map { |data| data.first.byteslice(1, 2).unpack1("v") }
       assert_equal [3, 3, 4], delays
       assert_equal 3, bytes.scan(/!\xF9\x04/n).length
-
+      assert_equal images.map(&:bytes), Flipbook.read(path).map(&:bytes)
     end
   end
 
@@ -47,10 +48,62 @@ class FlipbookTest < Test::Unit::TestCase
       bytes = File.binread(path)
       descriptors = gif_descriptors(bytes)
       assert_equal [[0, 0, 8, 6], [6, 4, 1, 1], [0, 0, 1, 1]], descriptors
+      assert_equal [first.bytes, second.bytes, second.bytes], Flipbook.read(path).map(&:bytes)
 
       full_path = File.join(directory, "full.gif")
       Flipbook.write(full_path, [first, second, second], fps: 10, optimize: false)
       assert_operator bytes.bytesize, :<, File.size(full_path)
+    end
+  end
+
+  def test_gif_transparency_clears_previous_frames_for_global_and_streaming_palettes
+    first = Tessel::Image.new(4, 3, fill: [255, 0, 0, 255])
+    transparent = Tessel::Image.new(4, 3)
+    last = Tessel::Image.new(4, 3, fill: [0, 0, 255, 255])
+
+    Dir.mktmpdir do |directory|
+      global_path = File.join(directory, "global.gif")
+      Flipbook.write(global_path, [first, transparent, last], fps: 10)
+      assert_equal [first.bytes, transparent.bytes, last.bytes], Flipbook.read(global_path).map(&:bytes)
+
+      local_path = File.join(directory, "local.gif")
+      Flipbook::GIF::Writer.open(local_path, width: 4, height: 3, palette: :per_frame) do |writer|
+        [first, transparent, last].each { |image| writer.add(image, delay: 0.1) }
+      end
+      assert_equal [first.bytes, transparent.bytes, last.bytes], Flipbook.read(local_path).map(&:bytes)
+    end
+  end
+
+  def test_gif_reader_applies_restore_to_previous_disposal
+    first = Tessel::Image.new(3, 2, fill: [255, 0, 0, 255])
+    second = first.dup
+    second[1, 0] = [0, 0, 255, 255]
+    background = [0, 255, 0, 255]
+
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "restore.gif")
+      Flipbook.write(path, [first, second], fps: 10, palette: [[0, 255, 0], [255, 0, 0], [0, 0, 255]], dither: :none)
+      bytes = File.binread(path)
+      control = bytes.index("!\xF9\x04".b) + 3
+      bytes.setbyte(control, (bytes.getbyte(control) & 0xe3) | (3 << 2))
+      File.binwrite(path, bytes)
+
+      restored = Tessel::Image.new(3, 2, fill: background)
+      restored[1, 0] = [0, 0, 255, 255]
+      assert_equal [first.bytes, restored.bytes], Flipbook.read(path).map(&:bytes)
+    end
+  end
+
+  def test_gif_reader_rejects_truncated_and_over_limit_files
+    image = solid([255, 0, 0, 255])
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "small.gif")
+      Flipbook.write(path, [image, image], fps: 10)
+      bytes = File.binread(path)
+      assert_raise(Flipbook::Error) { Flipbook::GIF::Reader.new(bytes.byteslice(0, bytes.bytesize - 1)).read }
+      assert_raise(Flipbook::Error) { Flipbook::GIF::Reader.new(bytes, max_pixels: 1).read }
+      assert_raise(Flipbook::Error) { Flipbook.read(path, max_frames: 1) }
+      assert_raise(Flipbook::Error) { Flipbook.read(path, max_total_pixels: 1) }
     end
   end
 

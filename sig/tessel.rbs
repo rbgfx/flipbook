@@ -1,0 +1,4 @@
+module Tessel
+  class Image
+  end
+end

@@ -6,6 +6,7 @@ require_relative "flipbook/version"
 require_relative "flipbook/timing"
 require_relative "flipbook/gif/bit_writer"
 require_relative "flipbook/gif/lzw"
+require_relative "flipbook/gif/reader"
 require_relative "flipbook/gif/writer"
 require_relative "flipbook/apng/writer"
 require_relative "flipbook/diff"
@@ -33,6 +34,10 @@ module Flipbook
         end
       end
     end
+  end
+
+  def read(path, **options)
+    GIF::Reader.read(path, **options)
   end
 
   def write_gif(path, frames, delays, loop:, colors:, palette:, dither:, optimize:)
