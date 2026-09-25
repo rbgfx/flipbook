@@ -1,12 +1,10 @@
 module Flipbook
   VERSION: String
 
-  def self.write: (String path, Array[Tessel::Image] frames, ?fps: Numeric?, ?delay: Numeric | Array[Numeric]?, ?loop: bool | Integer, ?format: String?, ?colors: Integer, ?palette: Symbol | Array[[Integer, Integer, Integer]], ?dither: Symbol, ?optimize: bool, **untyped) -> String
-  def self.read: (String path) -> Array[Tessel::Image]
+  def self.write: (String path, Array[Tessel::Image] frames, ?fps: Numeric?, ?delay: Numeric | Array[Numeric]?, ?loop: bool | Integer, ?colors: Integer, ?palette: Symbol | Array[[Integer, Integer, Integer]], ?dither: Symbol) -> String
 
   module Timing
     def self.delays: (Integer count, ?fps: Numeric?, ?delay: Numeric | Array[Numeric]?) -> Array[Rational]
     def self.centiseconds: (Array[Numeric] delays) -> Array[Integer]
-    def self.apng_fraction: (Numeric delay) -> [Integer, Integer]
   end
 end

@@ -1,7 +1,7 @@
 # Changelog
 
-## [0.3.0] - 2026-09-24
+## [0.1.0] - Unreleased
 
-- Add GIF89a encoding, animated PNG encoding, and GIF decoding.
-- Add streaming writers, cumulative frame timing, palette quantization, transparency, and frame-difference output.
-- Add the `Flipbook.write` and `Flipbook.read` APIs.
+- Add GIF89a encoding with streaming and batch writers.
+- Add global and per-frame palettes, transparency, and cumulative frame timing.
+- Add the `Flipbook.write` API.

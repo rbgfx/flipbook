@@ -14,10 +14,10 @@ class FlipbookTest < Test::Unit::TestCase
     end
 
     encoded = Flipbook::GIF::LZW.encode(bytes, 8)
-    assert_equal bytes, Flipbook::GIF::LZW.decode(unwrap_sub_blocks(encoded), 8, expected_size: bytes.bytesize)
+    assert_equal bytes, decode_lzw(unwrap_sub_blocks(encoded), 8, expected_size: bytes.bytesize)
   end
 
-  def test_gif_uses_cumulative_centisecond_rounding_and_reads_optimized_frames
+  def test_gif_write_uses_cumulative_centisecond_rounding
     images = [solid([255, 0, 0, 255]), solid([255, 0, 0, 255]), solid([255, 0, 0, 255])]
     images[1][1, 0] = [0, 0, 255, 255]
     images[2][1, 0] = [0, 255, 0, 255]
@@ -25,16 +25,17 @@ class FlipbookTest < Test::Unit::TestCase
     Dir.mktmpdir do |directory|
       path = File.join(directory, "test.gif")
       Flipbook.write(path, images, fps: 30)
-      reader = Flipbook::GIF::Reader.new(File.binread(path))
+      bytes = File.binread(path)
 
-      assert_equal [Rational(3, 100), Rational(3, 100), Rational(4, 100)], reader.delays
-      assert_equal [255, 0, 0, 255], reader.frames[0][0, 0]
-      assert_equal [0, 0, 255, 255], reader.frames[1][1, 0]
-      assert_equal [0, 255, 0, 255], reader.frames[2][1, 0]
+      assert bytes.start_with?("GIF89a")
+      assert bytes.end_with?(";".b)
+      delays = bytes.scan(/!\xF9\x04(.{4})\x00/mn).map { |data| data.first.byteslice(1, 2).unpack1("v") }
+      assert_equal [3, 3, 4], delays
+      assert_equal 3, bytes.scan(/!\xF9\x04/n).length
     end
   end
 
-  def test_gif_clears_to_transparency_when_a_pixel_becomes_transparent
+  def test_gif_marks_transparent_pixels
     first = solid([255, 0, 0, 255])
     second = first.dup
     second[0, 0] = [0, 0, 0, 0]
@@ -42,31 +43,12 @@ class FlipbookTest < Test::Unit::TestCase
     Dir.mktmpdir do |directory|
       path = File.join(directory, "alpha.gif")
       Flipbook.write(path, [first, second], fps: 10)
-      decoded = Flipbook.read(path)
+      bytes = File.binread(path)
 
-      assert_equal [255, 0, 0, 255], decoded[0][0, 0]
-      assert_equal [0, 0, 0, 0], decoded[1][0, 0]
-      assert_equal [255, 0, 0, 255], decoded[1][1, 0]
-    end
-  end
-
-  def test_apng_has_valid_chunk_sequence_and_keeps_the_first_frame_as_png
-    first = solid([255, 0, 0, 255])
-    second = first.dup
-    second[1, 0] = [0, 0, 255, 255]
-
-    Dir.mktmpdir do |directory|
-      path = File.join(directory, "test.png")
-      Flipbook.write(path, [first, second], fps: 24)
-      chunks = png_chunks(File.binread(path))
-      animation = chunks.select { |type, _| type == "acTL" }.fetch(0).last.unpack("N2")
-      controls = chunks.select { |type, _| type == "fcTL" }.map { |_, data| data.unpack1("N") }
-      frame_data = chunks.select { |type, _| type == "fdAT" }.map { |_, data| data.unpack1("N") }
-
-      assert_equal [2, 0], animation
-      assert_equal [0, 1], controls
-      assert_equal [2], frame_data
-      assert_equal first.bytes, Tessel.read(path).bytes
+      controls = bytes.scan(/!\xF9\x04(.{4})\x00/mn).map(&:first)
+      assert_equal 2, controls.length
+      assert_equal 1, controls.last.getbyte(0) & 1
+      assert_raise(ArgumentError) { Flipbook.write(File.join(directory, "alpha.png"), [first], fps: 10) }
     end
   end
 
@@ -96,16 +78,63 @@ class FlipbookTest < Test::Unit::TestCase
     output
   end
 
-  def png_chunks(bytes)
-    chunks = []
-    offset = Tessel::SIGNATURE.bytesize
-    while offset + 12 <= bytes.bytesize
-      length = bytes.byteslice(offset, 4).unpack1("N")
-      type = bytes.byteslice(offset + 4, 4)
-      chunks << [type, bytes.byteslice(offset + 8, length)]
-      offset += length + 12
-      break if type == "IEND"
+  def decode_lzw(bytes, minimum_code_size, expected_size: nil)
+    clear_code = 1 << minimum_code_size
+    end_code = clear_code + 1
+    dictionary = Array.new(clear_code) { |index| [index] } + [nil, nil]
+    next_code = end_code + 1
+    code_width = minimum_code_size + 1
+    bit_offset = 0
+    previous = nil
+    output = "".b
+    ended = false
+    loop do
+      code = read_lzw_code(bytes, bit_offset, code_width)
+      break if code.nil?
+
+      bit_offset += code_width
+      if code == clear_code
+        dictionary = Array.new(clear_code) { |index| [index] } + [nil, nil]
+        next_code = end_code + 1
+        code_width = minimum_code_size + 1
+        previous = nil
+        next
+      end
+      if code == end_code
+        ended = true
+        break
+      end
+
+      entry = if code < dictionary.length && dictionary[code]
+                dictionary[code]
+              elsif code == next_code && previous
+                previous + [previous.first]
+              else
+                raise "invalid test GIF LZW code"
+              end
+      output << entry.pack("C*")
+      raise "test GIF LZW output exceeded frame size" if expected_size && output.bytesize > expected_size
+
+      if previous && next_code < 4096
+        dictionary[next_code] = previous + [entry.first]
+        next_code += 1
+        code_width += 1 if next_code == (1 << code_width) && code_width < 12
+      end
+      previous = entry
     end
-    chunks
+    raise "test GIF LZW stream was truncated" unless ended && (!expected_size || output.bytesize == expected_size)
+
+    output
   end
+
+  def read_lzw_code(bytes, bit_offset, width)
+    return nil if bit_offset + width > bytes.bytesize * 8
+
+    value = 0
+    width.times do |bit|
+      value |= ((bytes.getbyte((bit_offset + bit) / 8) >> ((bit_offset + bit) % 8)) & 1) << bit
+    end
+    value
+  end
+
 end

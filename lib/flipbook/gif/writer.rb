@@ -20,7 +20,7 @@ module Flipbook
         raise
       end
 
-      def initialize(io, width:, height:, loop: true, palette: :per_frame, colors: 256, dither: :floyd_steinberg, optimize: true, transparent_index: nil, clear_background: false)
+      def initialize(io, width:, height:, loop: true, palette: :per_frame, colors: 256, dither: :floyd_steinberg, transparent_index: nil)
         @io = io
         @width = Integer(width)
         @height = Integer(height)
@@ -31,9 +31,6 @@ module Flipbook
         @loop = loop_value(loop)
         @colors = colors
         @dither = dither
-        @clear_background = clear_background
-        @optimize = optimize && !clear_background
-        @previous = nil
         @elapsed = Rational(0)
         @rounded_delay = 0
         @closed = false
@@ -41,17 +38,11 @@ module Flipbook
         @frame_count = 0
         @palette_mode = palette
         if palette == :per_frame
-          raise ArgumentError, "clear_background requires a global palette" if clear_background
           raise ArgumentError, "transparent_index is only valid with a global palette" unless transparent_index.nil?
           @global_palette = nil
         else
           raise TypeError, "palette must be :per_frame or an RGB array" unless palette.is_a?(Array)
           @global_palette = validate_palette(palette)
-          if (@optimize || clear_background) && transparent_index.nil?
-            raise ArgumentError, "global palettes need room for a transparent color when optimize is enabled" if @global_palette.length == 256
-            @global_palette = @global_palette + [[0, 0, 0]]
-            transparent_index = @global_palette.length - 1
-          end
           if transparent_index
             raise ArgumentError, "transparent_index must be the last palette entry" unless transparent_index == @global_palette.length - 1
             raise ArgumentError, "transparent_index is out of range" unless transparent_index.between?(0, @global_palette.length - 1)
@@ -73,9 +64,7 @@ module Flipbook
           @warned_short_delay = true
         end
         transparent_pixels = image.bytes.bytes.each_slice(4).any? { |_, _, _, alpha| alpha.zero? }
-        if @palette_mode == :per_frame && @frame_count.positive? && (@previous_transparency || transparent_pixels)
-          raise ArgumentError, "transparent multi-frame GIFs require a global palette"
-        end
+        raise ArgumentError, "transparent frames require a global palette" if @palette_mode == :per_frame && transparent_pixels
         elapsed = @elapsed + seconds
         target_delay = (elapsed * 100).floor
         frame_delay = target_delay - @rounded_delay
@@ -89,25 +78,11 @@ module Flipbook
           end
         end
 
-        left, top, width, height = @optimize ? Diff.bounds(@previous, image) : [0, 0, @width, @height]
-        if @previous && @optimize && transparent_index
-          image_bytes = image.bytes
-          old_bytes = @previous.bytes
-          (top...(top + height)).each do |y|
-            (left...(left + width)).each do |x|
-              offset = (y * @width + x) * 4
-              indices.setbyte(y * @width + x, transparent_index) if image_bytes.byteslice(offset, 4) == old_bytes.byteslice(offset, 4)
-            end
-          end
-        end
-        frame_indices = crop_indices(indices, left, top, width, height)
         write_control(frame_delay, transparent_index)
-        write_image(left, top, width, height, frame_indices, palette)
+        write_image(0, 0, @width, @height, indices, palette)
         @elapsed = elapsed
         @rounded_delay = target_delay
         @frame_count += 1
-        @previous_transparency = transparent_pixels
-        @previous = image.dup
         self
       end
 
@@ -148,7 +123,7 @@ module Flipbook
           return [@global_palette, opaque, @global_transparent_index]
         end
 
-        reserve = @optimize || transparent_pixels
+        reserve = transparent_pixels
         opaque_count = reserve ? [@colors - 1, 1].max : @colors
         opaque = Tessel::Quantize.palette_for(image, colors: [opaque_count, 2].max).first(opaque_count)
         palette = reserve ? opaque + [[0, 0, 0]] : opaque
@@ -159,8 +134,7 @@ module Flipbook
         @io << "GIF89a".b << [@width, @height].pack("v2")
         if @global_palette
           bits, size = table_size(@global_palette.length)
-          background = @clear_background ? @global_transparent_index : 0
-          @io << [0x80 | 0x70 | (bits - 1), background, 0].pack("C3")
+          @io << [0x80 | 0x70 | (bits - 1), 0, 0].pack("C3")
           write_palette(@global_palette, size)
         else
           @io << "\0\0\0".b
@@ -171,7 +145,7 @@ module Flipbook
       end
 
       def write_control(delay, transparent_index)
-        packed = @clear_background ? 0x08 : (@optimize ? 0x04 : 0)
+        packed = 0
         packed |= 0x01 if transparent_index
         @io << "!\xF9\x04".b << [packed, delay, transparent_index || 0, 0].pack("CvCC")
       end
@@ -196,13 +170,6 @@ module Flipbook
         (size - palette.length).times { @io << "\0\0\0".b }
       end
 
-      def crop_indices(indices, left, top, width, height)
-        output = String.new(capacity: width * height, encoding: Encoding::BINARY)
-        height.times do |row|
-          output << indices.byteslice((top + row) * @width + left, width)
-        end
-        output
-      end
     end
   end
 end

@@ -39,17 +39,6 @@ module Flipbook
       end
     end
 
-    def apng_fraction(delay)
-      value = rational(delay)
-      raise ArgumentError, "APNG delays cannot exceed 65535 seconds" if value > 65_535
-      max_denominator = value > 1 ? (65_535 / value).floor : 65_535
-      denominator = [value.denominator, max_denominator, 65_535].min
-      denominator = 1 if denominator.zero?
-      numerator = [(value * denominator).round, 1].max
-      divisor = numerator.gcd(denominator)
-      [numerator / divisor, denominator / divisor]
-    end
-
     def rational(value)
       raise TypeError, "delay and fps must be numeric" unless value.is_a?(Numeric)
 
