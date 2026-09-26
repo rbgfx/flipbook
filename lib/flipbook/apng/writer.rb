@@ -5,21 +5,8 @@ require "stringio"
 module Flipbook
   module APNG
     class Writer
-      def self.open(path, **options)
-        io = File.open(path, "wb")
-        writer = new(io, **options)
-        writer.instance_variable_set(:@owns_io, true)
-        return writer unless block_given?
-
-        begin
-          yield writer
-        ensure
-          writer.close
-        end
-        path
-      rescue StandardError
-        io&.close unless io&.closed?
-        raise
+      def self.open(path, **options, &block)
+        Output.open(self, path, **options, &block)
       end
 
       def initialize(io, width:, height:, loop: true, optimize: true, buffered: nil)
@@ -71,7 +58,7 @@ module Flipbook
           patch_animation_control
         end
         @closed = true
-        @io.close if @owns_io && !@io.closed?
+        Output.finish(@io, @target_path, @target_mode) if @owns_io
         self
       end
 

@@ -180,6 +180,49 @@ class FlipbookTest < Test::Unit::TestCase
     assert_raise(ArgumentError) { Flipbook::Timing.delays(1, fps: 24, delay: 0.1) }
   end
 
+  def test_failed_writes_preserve_existing_gif_and_apng_files
+    image = solid([255, 0, 0, 255])
+    Dir.mktmpdir do |directory|
+      gif = File.join(directory, "existing.gif")
+      apng = File.join(directory, "existing.png")
+      [gif, apng].each { |path| File.binwrite(path, "original") }
+
+      assert_raise(ArgumentError) { Flipbook::GIF::Writer.open(gif, width: 2, height: 1, colors: 1) }
+      assert_equal "original", File.binread(gif)
+      assert_raise(ArgumentError) { Flipbook::APNG::Writer.open(apng, width: 2, height: 1, loop: -1) }
+      assert_equal "original", File.binread(apng)
+
+      assert_raise(RuntimeError) do
+        Flipbook::GIF::Writer.open(gif, width: 2, height: 1) do |writer|
+          writer.add(image, delay: 0.1)
+          raise "interrupted"
+        end
+      end
+      assert_equal "original", File.binread(gif)
+      assert_raise(RuntimeError) do
+        Flipbook::APNG::Writer.open(apng, width: 2, height: 1) do |writer|
+          writer.add(image, delay: 0.1)
+          raise "interrupted"
+        end
+      end
+      assert_equal "original", File.binread(apng)
+    end
+  end
+
+  def test_streamed_gif_replaces_existing_file_only_after_close
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "recording.gif")
+      File.binwrite(path, "original")
+      writer = Flipbook::GIF::Writer.open(path, width: 2, height: 1)
+      assert_equal "original", File.binread(path)
+
+      writer.add(solid([255, 0, 0, 255]), delay: 0.1)
+      writer.close
+      assert_equal 1, Flipbook.read(path).length
+      assert_equal ["recording.gif"], Dir.children(directory)
+    end
+  end
+
   private
 
   def solid(color)

@@ -3,21 +3,8 @@
 module Flipbook
   module GIF
     class Writer
-      def self.open(path, **options)
-        io = File.open(path, "wb")
-        writer = new(io, **options)
-        writer.instance_variable_set(:@owns_io, true)
-        return writer unless block_given?
-
-        begin
-          yield writer
-        ensure
-          writer.close
-        end
-        path
-      rescue StandardError
-        io&.close unless io&.closed?
-        raise
+      def self.open(path, **options, &block)
+        Output.open(self, path, **options, &block)
       end
 
       def initialize(io, width:, height:, loop: true, palette: :per_frame, colors: 256, dither: :floyd_steinberg, transparent_index: nil, optimize: true)
@@ -100,7 +87,7 @@ module Flipbook
         write_pending(@pending_frame[:transparent] ? 2 : 1)
         @io << ";".b
         @closed = true
-        @io.close if @owns_io && !@io.closed?
+        Output.finish(@io, @target_path, @target_mode) if @owns_io
         self
       end
 

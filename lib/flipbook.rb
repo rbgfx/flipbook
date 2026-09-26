@@ -4,6 +4,7 @@ require "tessel"
 
 require_relative "flipbook/version"
 require_relative "flipbook/timing"
+require_relative "flipbook/output"
 require_relative "flipbook/gif/bit_writer"
 require_relative "flipbook/gif/lzw"
 require_relative "flipbook/gif/reader"
