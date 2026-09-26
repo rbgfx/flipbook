@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.1] - 2026-09-26
+
+- Preserve existing GIF and APNG files if writing a replacement fails.
+
 ## [0.4.0] - 2026-09-25
 
 - Read composited GIF frames with configurable image, frame, and total-pixel limits.
